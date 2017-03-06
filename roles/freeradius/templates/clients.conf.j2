@@ -1,0 +1,12 @@
+client ASA {
+  ipaddr = {{ asa_internal_iface_ip }}
+  secret = {{ shared_secret }}
+}
+
+# comes with the default configuration
+client localhost {
+	ipaddr = 127.0.0.1
+	secret		= testing123
+	require_message_authenticator = no
+	nastype     = other	# localhost isn't usually a NAS...
+}

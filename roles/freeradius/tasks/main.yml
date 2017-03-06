@@ -1,0 +1,71 @@
+---
+
+- name: Install required packages
+  apt:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  with_items:
+    - ntp
+    - freeradius
+    - freeradius-utils
+    - libpam-google-authenticator
+
+- name: Copy configuration files
+  template:
+    src: "{{ item }}.j2"
+    dest: "/etc/freeradius/{{ item}}"
+    mode: 0644
+  notify: restart freeradius
+  with_items:
+    - users
+    - clients.conf
+
+- name: Change user and group in radius config
+  lineinfile:
+    dest: /etc/freeradius/radiusd.conf
+    regexp: "^#?{{ item }}"
+    line: "{{ item }} = root"
+  notify: restart freeradius
+  with_items:
+    - user
+    - group
+
+- name: Enable pam
+  lineinfile:
+    dest: /etc/freeradius/sites-enabled/default
+    regexp: "^#?.*pam"
+    line: "pam"
+  notify: restart freeradius
+
+- name: Configure pam
+  template:
+    src: pam_radius.j2
+    dest: /etc/pam.d/radiusd
+    mode: 0644
+  notify: restart freeradius
+
+- name: Add admin user
+  user:
+    name: "{{ admin_username }}"
+    password: "{{ admin_password|password_hash('sha512') }}"
+    comment: "Admin user"
+    shell: /bin/bash
+    groups: "sudo"
+    append: yes
+
+- name: Check if /home/{{ admin_username }}/.google_authenticator file was already generated before
+  stat:
+    path: /home/{{ admin_username }}/.google_authenticator
+  register: secret_key_file
+
+- name: Generate secret key file for {{ admin_username }} user
+  command: sudo -u {{ admin_username }} google-authenticator  -t -d -r 1 -R 30 -w 3 -s /home/{{ admin_username }}/.google_authenticator -f
+  when: not secret_key_file.stat.exists
+
+- command: cat /home/{{ admin_username }}/.google_authenticator
+  register: secret
+  changed_when: no
+
+- name: Show secret key and emergency scratch codes
+  debug: msg="{{ secret.stdout }}"

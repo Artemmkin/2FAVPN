@@ -1,0 +1,9 @@
+---
+# defaults file for freeradius
+
+admin_username: admin
+admin_password: admin
+
+asa_internal_iface_ip: 10.60.60.51
+
+shared_secret: superSecret
