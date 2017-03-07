@@ -1,0 +1,91 @@
+! ASA 9.6.2.204
+!
+! required config start
+!
+interface management0/0
+  nameif outside
+  security-level 0
+! This could break here
+! Start over without including management interface configuration
+  ip address dhcp setroute
+  no shutdown
+
+interface gigabitethernet0/0
+  nameif inside
+  security-level 100
+  ip address dhcp
+  no shutdown
+
+! Permits flow of traffic that comes in on an interface and is routed back out the same interface
+! Required for VPC peering to work
+same-security-traffic permit intra-interface
+
+! some nat configuration
+access-list some_nat permit ip any any
+access-group some_nat in interface outside
+object network obj-any
+  subnet 0.0.0.0 0.0.0.0
+  nat (inside,outside) dynamic interface
+
+! Network object for VPN subnet
+object network VPN
+! NOTE You may want to change the subnet
+subnet 192.168.100.0 255.255.255.0
+
+! Use dynamic PAT to translate IP addresses from VPN subnet into IP adress of ASA's inside interface.
+nat (outside,inside) source dynamic VPN interface
+
+! Use dynamic PAT to translate IP addresses from VPN subnet into IP adress of ASA's outside interface.
+! Required for VPC peering to work
+nat (outside,outside) source dynamic VPN interface
+
+! For split tunelling configuration
+! NOTE Add an ACE for each VPC
+access-list VPN-ACL standard permit 10.60.60.0 255.255.255.0
+access-list VPN-ACL standard permit 10.10.10.0 255.255.255.0
+
+! Pool of ip addresses for VPN clients
+! NOTE You may want to change ip pool
+ip local pool VPN-Pool 192.168.100.1-192.168.100.50 mask 255.255.255.0
+
+! Add FreeRADIUS server
+aaa-server FreeRADIUS protocol radius
+reactivation-mode depletion deadtime 5
+! NOTE change this to the IP address of the FreeRADIUS server host
+aaa-server FreeRADIUS (inside) host 10.60.60.55
+timeout 60
+authentication-port 1812
+accounting-port 1813
+retry-interval 10
+! NOTE This key should match the key specified in ansible role "freeradius"
+key superSecret
+no mschapv2-capable
+
+! Configure local group policy
+! Split tunnelling is used
+group-policy VPN-GP internal
+group-policy VPN-GP attributes
+vpn-tunnel-protocol ssl-client
+split-tunnel-policy tunnelspecified
+split-tunnel-network-list value VPN-ACL
+
+! Create a connection profile
+tunnel-group VPN-TG type remote-access
+tunnel-group VPN-TG general-attributes
+! Use LOCAL in case of radius server failure
+authentication-server-group FreeRADIUS local
+address-pool VPN-Pool
+default-group-policy VPN-GP
+tunnel-group VPN-TG webvpn-attributes
+group-alias "my VPN" enable
+
+! Enable AnyConnect VPN
+webvpn
+enable outside
+! NOTE You will need a separate package for each OS that your users have. So add more lines if needed
+! NOTE change the package name
+anyconnect image disk0:/anyconnect-linux-64-4.3.04027-k9.pkg
+anyconnect enable
+
+! Еnable the dropdown box of aliases for the connection profile
+tunnel-group-list enable
